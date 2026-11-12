@@ -151,7 +151,8 @@ class TileDownloadService(
     private suspend fun fetchTileFromNetwork(tile: Tile): Bitmap {
         // This logic remains largely the same, just extracted
         return callbackFlow {
-            val url = "https://tile.openstreetmap.org/${tile.z}/${tile.x}/${tile.y}.png"
+            // swisstopo national map (Landeskarte), Web Mercator / XYZ tiling
+            val url = "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${tile.z}/${tile.x}/${tile.y}.jpeg"
 
             Log.d(KarooRouteGraphExtension.TAG, "Http tile request to ${url}...")
 

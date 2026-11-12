@@ -16,8 +16,8 @@
   -->
 
 <resources>
-    <string name="app_name">RouteGraph</string>
-    <string name="extension_name">RouteGraph</string>
+    <string name="app_name">RouteGraph swisstopo</string>
+    <string name="extension_name">RouteGraph swisstopo</string>
     <string name="routegraph">Routenprofil</string>
     <string name="routegraph_description">Vollständiges Höhenprofil mit POIs</string>
     <string name="verticalroutegraph">Vertikales Routenprofil</string>

@@ -59,7 +59,7 @@ import org.koin.android.ext.android.inject
 import kotlin.math.pow
 import kotlin.time.Duration.Companion.seconds
 
-class KarooRouteGraphExtension : KarooExtension("karoo-routegraph", BuildConfig.VERSION_NAME) {
+class KarooRouteGraphExtension : KarooExtension("karoo-routegraph-swisstopo", BuildConfig.VERSION_NAME) {
     companion object {
         const val TAG = "karoo-routegraph"
     }

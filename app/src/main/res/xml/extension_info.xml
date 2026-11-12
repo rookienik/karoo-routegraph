@@ -18,7 +18,7 @@
 <ExtensionInfo
     displayName="@string/extension_name"
     icon="@drawable/trip"
-    id="karoo-routegraph"
+    id="karoo-routegraph-swisstopo"
     scansDevices="false"
     mapLayer="true">
 

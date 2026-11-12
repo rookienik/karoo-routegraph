@@ -1089,7 +1089,7 @@ class MinimapDataType(
             textAlign = Paint.Align.RIGHT
         }
         val padding = 5f
-        val copyrightText = "(c) OpenStreetMap"
+        val copyrightText = "(c) swisstopo"
 
         val xPos = width - padding
         val yPos = height - padding

@@ -28,7 +28,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "de.timklge.karooroutegraph"
+        applicationId = "de.timklge.karooroutegraph.swisstopo"
         minSdk = 26
         //noinspection ExpiredTargetSdkVersion
         targetSdk = 28

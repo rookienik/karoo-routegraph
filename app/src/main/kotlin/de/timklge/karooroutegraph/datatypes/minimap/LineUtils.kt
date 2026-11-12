@@ -146,7 +146,7 @@ fun LineString.getOSMZoomLevelToFit(
 
     // Binary search for optimal zoom level
     var low = 1f
-    var high = 19f
+    var high = 18f // swisstopo 3857 tiles stop at z18
     var bestZoom = 1f
     val threshold = 0.01 // 1% threshold for stopping the search
 
