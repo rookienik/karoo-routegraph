@@ -27,6 +27,10 @@ import io.hammerhead.karooext.models.OnHttpResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.channels.trySendBlocking
@@ -54,7 +58,9 @@ class TileDownloadService(
     private val cacheDir = File(context.cacheDir, "tiles")
     private val inMemoryCache = mutableMapOf<Tile, CachedTile>()
     private val mutex = Mutex()
-    private val maxCacheSize = 50
+    private val maxCacheSize = 24 // 512 px tiles are ~1 MB each in memory
+    private val pendingTiles: MutableSet<Tile> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val downloadWorkers = 3
     private val maxCacheAge = Duration.ofMinutes(30)
 
     private val downloadQueue: Channel<Tile> = Channel(Channel.UNLIMITED)
@@ -70,6 +76,7 @@ class TileDownloadService(
 
     fun startDownloadJob() {
         downloadJob = CoroutineScope(Dispatchers.IO).launch {
+          repeat(downloadWorkers) { launch {
             for (tile in downloadQueue) {
                 try {
                     val downloadedTile = getTileIfAvailableInstantly(tile)
@@ -93,8 +100,11 @@ class TileDownloadService(
                     }
                 } catch (e: Exception) {
                     Log.e(KarooRouteGraphExtension.TAG, "Error downloading tile $tile", e)
+                } finally {
+                    pendingTiles.remove(tile) // allows a re-queue (retry) on the next redraw if it failed
                 }
             }
+          } }
         }
     }
 
@@ -148,7 +158,7 @@ class TileDownloadService(
 
     fun queueTileDownload(tile: Tile) {
         // If not available instantly, add to download queue
-        downloadQueue.trySendBlocking(tile)
+        if (pendingTiles.add(tile)) downloadQueue.trySendBlocking(tile)
     }
 
     /**
@@ -158,19 +168,36 @@ class TileDownloadService(
      * level deeper, stitched into a 512 px bitmap: finer map product and only ~1.4x upscaling.
      */
     private suspend fun fetchTileFromNetwork(tile: Tile): Bitmap {
-        if (tile.z >= SWISSTOPO_MAX_ZOOM) return fetchSwisstopoTile(tile.z, tile.x, tile.y)
+        if (tile.z >= SWISSTOPO_MAX_ZOOM) return fetchWithRetry(tile.z, tile.x, tile.y)
 
         val childZ = tile.z + 1
+        val offsets = listOf(0 to 0, 1 to 0, 0 to 1, 1 to 1)
+        val children = coroutineScope {
+            offsets.map { (dx, dy) -> async { fetchWithRetry(childZ, tile.x * 2 + dx, tile.y * 2 + dy) } }.awaitAll()
+        }
         val stitched = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(stitched)
-        for (dy in 0..1) {
-            for (dx in 0..1) {
-                val child = fetchSwisstopoTile(childZ, tile.x * 2 + dx, tile.y * 2 + dy)
-                canvas.drawBitmap(child, null, android.graphics.Rect(dx * 256, dy * 256, dx * 256 + 256, dy * 256 + 256), null)
-                child.recycle()
-            }
+        offsets.zip(children).forEach { (offset, child) ->
+            val (dx, dy) = offset
+            canvas.drawBitmap(child, null, android.graphics.Rect(dx * 256, dy * 256, dx * 256 + 256, dy * 256 + 256), null)
+            child.recycle()
         }
         return stitched
+    }
+
+    private suspend fun fetchWithRetry(z: Int, x: Int, y: Int, attempts: Int = 3): Bitmap {
+        var lastError: Throwable? = null
+        repeat(attempts) { attempt ->
+            try {
+                return fetchSwisstopoTile(z, x, y)
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                lastError = e
+                Log.w(KarooRouteGraphExtension.TAG, "Tile $z/$x/$y attempt ${attempt + 1} failed", e)
+                delay(500L * (attempt + 1))
+            }
+        }
+        throw lastError ?: IllegalStateException("Tile $z/$x/$y failed")
     }
 
     private suspend fun fetchSwisstopoTile(z: Int, x: Int, y: Int): Bitmap {

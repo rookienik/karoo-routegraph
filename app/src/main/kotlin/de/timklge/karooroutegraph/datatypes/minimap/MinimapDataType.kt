@@ -586,13 +586,12 @@ class MinimapDataType(
                         }
                     }
                     emitter.updateView(result.remoteViews)
-                    if (nextTileToDownload != null) {
+                    // Queue all missing tiles at once (deduplicated in TileDownloadService), not one per redraw
+                    requiredTiles.filter { downloadedTiles[it] == null }.forEach { tile ->
                         try {
-                            this@MinimapDataType.tileDownloadService.queueTileDownload(
-                                nextTileToDownload
-                            )
+                            this@MinimapDataType.tileDownloadService.queueTileDownload(tile)
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error downloading tile: $nextTileToDownload", e)
+                            Log.e(TAG, "Error queueing tile: $tile", e)
                         }
                     }
                 } catch (e: Exception) {
