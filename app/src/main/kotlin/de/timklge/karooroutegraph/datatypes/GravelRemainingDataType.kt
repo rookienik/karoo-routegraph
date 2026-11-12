@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
 class GravelRemainingDataType(
     private val viewModelProvider: RouteGraphViewModelProvider,
     private val surfaceConditionRetrievalService: SurfaceConditionRetrievalService
-) : DataTypeImpl("karoo-routegraph", "gravelremaining") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "gravelremaining") {
 
     data class StreamData(
         val distanceAlongRoute: Double?,

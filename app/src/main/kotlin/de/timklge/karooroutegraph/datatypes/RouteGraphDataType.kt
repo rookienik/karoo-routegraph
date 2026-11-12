@@ -104,7 +104,7 @@ class RouteGraphDataType(
     private val displayViewModelProvider: RouteGraphDisplayViewModelProvider,
     private val applicationContext: Context,
     private val sourfaceConditionRetrievalService: SurfaceConditionRetrievalService
-) : DataTypeImpl("karoo-routegraph", "routegraph") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "routegraph") {
     private val glance = GlanceRemoteViews()
 
     private fun isNightMode(): Boolean {

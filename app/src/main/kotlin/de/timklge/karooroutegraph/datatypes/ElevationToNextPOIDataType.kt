@@ -38,7 +38,7 @@ class ElevationToNextPOIDataType(
     private val karooSystem: KarooSystemService,
     private val viewModelProvider: RouteGraphViewModelProvider,
     private val applicationContext: Context
-) : DataTypeImpl("karoo-routegraph", "elevationtopoi") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "elevationtopoi") {
     override fun startStream(emitter: Emitter<StreamState>) {
         val job = CoroutineScope(Dispatchers.Default).launch {
             viewModelProvider.viewModelFlow.collect { state ->

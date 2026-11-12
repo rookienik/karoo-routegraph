@@ -109,7 +109,7 @@ class VerticalRouteGraphDataType(
     private val surfaceConditionRetrievalService: SurfaceConditionRetrievalService,
     private val travelTimeEstimationService: TravelTimeEstimationService,
     private val applicationContext: Context
-) : DataTypeImpl("karoo-routegraph", "verticalroutegraph") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "verticalroutegraph") {
     private val glance = GlanceRemoteViews()
 
     private fun isNightMode(): Boolean {

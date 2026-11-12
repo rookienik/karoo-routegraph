@@ -38,7 +38,7 @@ class DistanceToNextPOIDataType(
     private val karooSystem: KarooSystemService,
     private val viewModelProvider: RouteGraphViewModelProvider,
     private val applicationContext: Context
-) : DataTypeImpl("karoo-routegraph", "distancetopoi") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "distancetopoi") {
     override fun startStream(emitter: Emitter<StreamState>) {
         val job = CoroutineScope(Dispatchers.Default).launch {
             viewModelProvider.viewModelFlow.collect { state ->

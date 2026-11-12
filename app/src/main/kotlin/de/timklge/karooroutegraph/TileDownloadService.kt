@@ -19,6 +19,7 @@ package de.timklge.karooroutegraph
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.util.Log
 import de.timklge.karooroutegraph.datatypes.minimap.MinimapViewModelProvider
 import io.hammerhead.karooext.models.HttpResponseState
@@ -40,6 +41,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.time.Duration
 import java.time.Instant
+
+const val SWISSTOPO_MAX_ZOOM = 18
 
 class TileDownloadService(
     private val karooSystemServiceProvider: KarooSystemServiceProvider,
@@ -96,7 +99,7 @@ class TileDownloadService(
     }
 
     private fun getTileFile(tile: Tile): File {
-        return File(cacheDir, "${tile.style}-${tile.z}-${tile.x}-${tile.y}.png")
+        return File(cacheDir, "swisstopo2x-${tile.z}-${tile.x}-${tile.y}.jpg")
     }
 
     suspend fun getTileIfAvailableInstantly(tile: Tile): Bitmap? {
@@ -148,11 +151,32 @@ class TileDownloadService(
         downloadQueue.trySendBlocking(tile)
     }
 
+    /**
+     * The minimap draws every tile at TARGET_TILE_SIZE (700 px), i.e. a 256 px tile is upscaled ~2.7x.
+     * swisstopo chooses its map product by zoom level, so upscaled tiles look far too coarse
+     * (overview map at street scale). Instead, build each tile from its four children one zoom
+     * level deeper, stitched into a 512 px bitmap: finer map product and only ~1.4x upscaling.
+     */
     private suspend fun fetchTileFromNetwork(tile: Tile): Bitmap {
-        // This logic remains largely the same, just extracted
+        if (tile.z >= SWISSTOPO_MAX_ZOOM) return fetchSwisstopoTile(tile.z, tile.x, tile.y)
+
+        val childZ = tile.z + 1
+        val stitched = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(stitched)
+        for (dy in 0..1) {
+            for (dx in 0..1) {
+                val child = fetchSwisstopoTile(childZ, tile.x * 2 + dx, tile.y * 2 + dy)
+                canvas.drawBitmap(child, null, android.graphics.Rect(dx * 256, dy * 256, dx * 256 + 256, dy * 256 + 256), null)
+                child.recycle()
+            }
+        }
+        return stitched
+    }
+
+    private suspend fun fetchSwisstopoTile(z: Int, x: Int, y: Int): Bitmap {
         return callbackFlow {
             // swisstopo national map (Landeskarte), Web Mercator / XYZ tiling
-            val url = "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${tile.z}/${tile.x}/${tile.y}.jpeg"
+            val url = "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/${z}/${x}/${y}.jpeg"
 
             Log.d(KarooRouteGraphExtension.TAG, "Http tile request to ${url}...")
 
@@ -180,6 +204,7 @@ class TileDownloadService(
                         }
 
                         val result = BitmapFactory.decodeStream(inputStream)
+                            ?: error("Could not decode tile $url (HTTP ${completeEvent.statusCode})")
 
                         trySendBlocking(result)
                     } catch (e: Throwable) {
@@ -198,7 +223,7 @@ class TileDownloadService(
     private fun saveTileToFile(bitmap: Bitmap, file: File) {
         try {
             FileOutputStream(file).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
             }
             Log.v(KarooRouteGraphExtension.TAG, "Saved tile to ${file.path}")
         } catch (e: IOException) {

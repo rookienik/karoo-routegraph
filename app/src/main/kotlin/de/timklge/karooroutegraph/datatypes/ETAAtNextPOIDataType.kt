@@ -48,7 +48,7 @@ class ETAAtNextPOIDataType(
     private val viewModelProvider: RouteGraphViewModelProvider,
     private val travelTimeEstimationService: TravelTimeEstimationService,
     private val surfaceConditionRetrievalService: SurfaceConditionRetrievalService
-) : DataTypeImpl("karoo-routegraph", "etapoi") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "etapoi") {
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun startStream(emitter: Emitter<StreamState>) {
         data class StreamState(val state: RouteGraphViewModel, val userProfile: UserProfile, val powerPerHour: Double?, val surfaceConditions: List<SurfaceConditionSegment>?)

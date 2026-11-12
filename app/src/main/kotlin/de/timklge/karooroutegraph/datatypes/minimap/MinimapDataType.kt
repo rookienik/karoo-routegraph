@@ -128,7 +128,7 @@ class MinimapDataType(
     private val locationViewModelProvider: LocationViewModelProvider,
     private val applicationContext: Context,
     private val surfaceConditionRetrievalService: SurfaceConditionRetrievalService
-) : DataTypeImpl("karoo-routegraph", "minimap") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "minimap") {
     private val glance = GlanceRemoteViews()
 
     private val METERS_PER_FOOT = 0.3048

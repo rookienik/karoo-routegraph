@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 class PoiButtonDataType(
     private val karooSystem: KarooSystemService,
     private val applicationContext: Context
-) : DataTypeImpl("karoo-routegraph", "poiButton") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "poiButton") {
     private val glance = GlanceRemoteViews()
 
     private fun isNightMode(): Boolean {

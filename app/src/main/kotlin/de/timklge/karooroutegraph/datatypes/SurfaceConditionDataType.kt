@@ -67,7 +67,7 @@ class SurfaceConditionDataType(
     private val karooSystemProvider: KarooSystemServiceProvider,
     private val viewModelProvider: RouteGraphViewModelProvider,
     private val surfaceConditionRetrievalService: SurfaceConditionRetrievalService
-) : DataTypeImpl("karoo-routegraph", "surfacetype") {
+) : DataTypeImpl("karoo-routegraph-swisstopo", "surfacetype") {
     @OptIn(ExperimentalGlanceRemoteViewsApi::class)
     private val glance = GlanceRemoteViews()
 
