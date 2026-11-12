@@ -1,0 +1,18 @@
+name: Tile diagnostic
+on:
+  push:
+    branches: [ "diag" ]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+    - run: |
+        for u in \
+          "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/14/8625/5770.jpeg" \
+          "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/16/34503/23083.jpeg" \
+          "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/18/138014/92334.jpeg" \
+          "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/14/8800/5373.jpeg"; do
+          echo "== $u"
+          curl -sS -A "karoo-routegraph" -o t.bin -w "status=%{http_code} type=%{content_type} bytes=%{size_download}\n" "$u"
+          file t.bin
+        done
