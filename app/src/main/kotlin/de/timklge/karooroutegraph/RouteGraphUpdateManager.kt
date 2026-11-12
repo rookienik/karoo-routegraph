@@ -114,6 +114,7 @@ class RouteGraphUpdateManager(
         Log.d(TAG, "Starting graph updater")
 
         var knownRoute: LineString? = null
+        var routeStateInitialized = false
         var knownPois: Set<POI> = mutableSetOf()
         var knownSettings: RouteGraphSettings? = null
         var knownClimbs: List<Climb>? = null
@@ -255,7 +256,10 @@ class RouteGraphUpdateManager(
                         }
                     }
 
-                    val routeChanged =  if (knownRoute == null || routeLineString != knownRoute || knownSettings != settings){
+                    // Without a route, knownRoute stays null, so the old "knownRoute == null" check fired on every
+                    // update and kept resetting the minimap zoom. Only treat it as changed on first run or a real change.
+                    val routeChanged =  if (!routeStateInitialized || routeLineString != knownRoute || knownSettings != settings){
+                        routeStateInitialized = true
                         knownRoute = routeLineString
                         lastKnownPositionAlongRoute = 0.0
                         knownSettings = settings
