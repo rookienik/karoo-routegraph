@@ -275,7 +275,7 @@ class RouteGraphUpdateManager(
 
                     if (routeChanged) {
                         displayViewModelProvider.update {
-                            it.copy(minimapZoomLevel = if (knownRoute != null) MinimapZoomLevel.COMPLETE_ROUTE else MinimapZoomLevel.FAR)
+                            it.copy(minimapZoomLevel = if (knownRoute != null) MinimapZoomLevel.COMPLETE_ROUTE else MinimapZoomLevel.DEFAULT)
                         }
                     }
 

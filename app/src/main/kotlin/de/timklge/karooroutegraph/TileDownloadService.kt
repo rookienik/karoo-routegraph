@@ -162,10 +162,9 @@ class TileDownloadService(
     }
 
     /**
-     * The minimap draws every tile at TARGET_TILE_SIZE (700 px), i.e. a 256 px tile is upscaled ~2.7x.
-     * swisstopo chooses its map product by zoom level, so upscaled tiles look far too coarse
-     * (overview map at street scale). Instead, build each tile from its four children one zoom
-     * level deeper, stitched into a 512 px bitmap: finer map product and only ~1.4x upscaling.
+     * Upstream drew 256 px tiles at 700 px (~2.7x upscaling); swisstopo picks its map product by zoom,
+     * so that looked far too coarse. Each tile is built from its four children one zoom level deeper,
+     * stitched into a 512 px bitmap and drawn 1:1 (TARGET_TILE_SIZE = 512).
      */
     private suspend fun fetchTileFromNetwork(tile: Tile): Bitmap {
         if (tile.z >= SWISSTOPO_MAX_ZOOM) return fetchWithRetry(tile.z, tile.x, tile.y)

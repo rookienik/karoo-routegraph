@@ -35,7 +35,7 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.tan
 
-const val TARGET_TILE_SIZE = 700.0
+const val TARGET_TILE_SIZE = 512.0 // = stitched swisstopo tile size, drawn 1:1 for maximum detail
 
 @DrawableRes
 fun mapPoiToIcon(poiType: String): Int {

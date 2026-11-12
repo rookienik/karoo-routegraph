@@ -45,6 +45,8 @@ import androidx.glance.appwidget.ExperimentalGlanceRemoteViewsApi
 import androidx.glance.appwidget.GlanceRemoteViews
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.layout.Box
+import androidx.glance.layout.Column
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.fillMaxSize
 import com.mapbox.geojson.LineString
 import com.mapbox.geojson.Point
@@ -97,24 +99,39 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 enum class MinimapZoomLevel(val level: Float?) {
-    CLOSEST(16.0f),
-    CLOSE(14.0f),
-    FAR(12.0f),
-    FURTHER(10.0f),
-    FURTHEST(8.0f),
+    // One web-mercator zoom level per step (2x per tap); scale bar roughly 20 m (Z17) to 5 km (Z10)
+    Z17(17f), Z16(16f), Z15(15f), Z14(14f), Z13(13f), Z12(12f), Z11(11f), Z10(10f),
     COMPLETE_ROUTE(null);
 
-    // Zooms out, but at most to [maxZoomLevel]. Afterwards it will return COMPLETE_ROUTE
-    fun next(maxZoomLevel: Float?): MinimapZoomLevel {
-        if (this == COMPLETE_ROUTE) {
-            return CLOSEST
+    companion object {
+        val DEFAULT = Z14
+        private val fixedLevels = entries.filter { it.level != null }.sortedByDescending { it.level } // Z17 .. Z10
+
+        /** Closest fixed level that still shows at least [zoom] (rounded down). */
+        fun forZoom(zoom: Float?): MinimapZoomLevel {
+            if (zoom == null) return DEFAULT
+            return fixedLevels.firstOrNull { it.level!! <= zoom } ?: fixedLevels.last()
         }
+    }
 
-        val nextZoomLevel = entries
-            .filter { it.level != null && it.level < (this.level ?: Float.MAX_VALUE) && it.level >= (maxZoomLevel ?: Float.MIN_VALUE) }
-            .maxByOrNull { it.level!! }
+    /** Zoom in one step. From COMPLETE_ROUTE, go to the first fixed level closer than the route fit. */
+    fun zoomIn(routeFitZoom: Float?): MinimapZoomLevel {
+        if (this == COMPLETE_ROUTE) {
+            val target = forZoom(routeFitZoom)
+            return fixedLevels.lastOrNull { it.level!! > target.level!! } ?: target
+        }
+        return fixedLevels.lastOrNull { it.level!! > this.level!! } ?: this
+    }
 
-        return nextZoomLevel ?: COMPLETE_ROUTE
+    /**
+     * Zoom out one step. If a route is loaded and the next step would show more than the whole
+     * route (or there is no wider fixed step), switch to COMPLETE_ROUTE. Without a route, stop at Z10.
+     */
+    fun zoomOut(routeFitZoom: Float?): MinimapZoomLevel {
+        if (this == COMPLETE_ROUTE) return this
+        val next = fixedLevels.firstOrNull { it.level!! < this.level!! }
+        if (routeFitZoom != null && (next == null || next.level!! < routeFitZoom)) return COMPLETE_ROUTE
+        return next ?: this
     }
 }
 
@@ -567,22 +584,29 @@ class MinimapDataType(
                         )
                     }
                     val result = this@MinimapDataType.glance.compose(context, DpSize.Unspecified) {
-                        var modifier = GlanceModifier.fillMaxSize()
-
-                        if (!config.preview) modifier = modifier.clickable(
-                            onClick = actionRunCallback<ChangeMinimapZoomLevel>(
-                                parameters = actionParametersOf(
-                                    ActionParameters.Key<String>("action_type") to "minimap_zoom"
-                                )
-                            )
-                        )
-
-                        Box(modifier = modifier) {
+                        Box(modifier = GlanceModifier.fillMaxSize()) {
                             Image(
                                 ImageProvider(bitmap),
                                 "Minimap",
                                 modifier = GlanceModifier.fillMaxSize()
                             )
+                            if (!config.preview) {
+                                // Tap top half to zoom in, bottom half to zoom out
+                                Column(modifier = GlanceModifier.fillMaxSize()) {
+                                    listOf(ChangeMinimapZoomLevel.ZOOM_IN, ChangeMinimapZoomLevel.ZOOM_OUT).forEach { direction ->
+                                        Box(
+                                            modifier = GlanceModifier.fillMaxWidth().defaultWeight().clickable(
+                                                onClick = actionRunCallback<ChangeMinimapZoomLevel>(
+                                                    parameters = actionParametersOf(
+                                                        ActionParameters.Key<String>("action_type") to "minimap_zoom",
+                                                        ChangeMinimapZoomLevel.DIRECTION_KEY to direction
+                                                    )
+                                                )
+                                            )
+                                        ) {}
+                                    }
+                                }
+                            }
                         }
                     }
                     emitter.updateView(result.remoteViews)

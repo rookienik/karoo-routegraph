@@ -30,6 +30,12 @@ import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
 class ChangeMinimapZoomLevel : ActionCallback, KoinComponent {
+    companion object {
+        val DIRECTION_KEY = ActionParameters.Key<String>("zoom_direction")
+        const val ZOOM_IN = "in"
+        const val ZOOM_OUT = "out"
+    }
+
     private val viewModelProvider: RouteGraphViewModelProvider by inject()
     private val routeGraphDisplayViewModelProvider: RouteGraphDisplayViewModelProvider by inject()
 
@@ -52,7 +58,8 @@ class ChangeMinimapZoomLevel : ActionCallback, KoinComponent {
 
             if (width != null && height != null) {
                 val requiredZoomLevel = getRequiredZoomLevel(viewModel, displayViewModel.minimapWidth, displayViewModel.minimapHeight)
-                val newZoomLevel = displayViewModel.minimapZoomLevel.next(requiredZoomLevel)
+                val current = displayViewModel.minimapZoomLevel
+                val newZoomLevel = if (parameters[DIRECTION_KEY] == ZOOM_IN) current.zoomIn(requiredZoomLevel) else current.zoomOut(requiredZoomLevel)
                 Log.d(KarooRouteGraphExtension.Companion.TAG, "Updated zoom level: $newZoomLevel")
 
                 displayViewModel.copy(minimapZoomLevel = newZoomLevel)

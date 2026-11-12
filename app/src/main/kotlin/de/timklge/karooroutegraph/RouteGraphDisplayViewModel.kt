@@ -87,7 +87,7 @@ sealed class ZoomLevel {
 
 data class RouteGraphDisplayViewModel(val zoomLevel: ZoomLevel = ZoomLevel.CompleteRoute,
                                       val verticalZoomLevel: ZoomLevel = ZoomLevel.CompleteRoute,
-                                      val minimapZoomLevel: MinimapZoomLevel = MinimapZoomLevel.FAR,
+                                      val minimapZoomLevel: MinimapZoomLevel = MinimapZoomLevel.DEFAULT,
                                       val minimapWidth: Int? = null, val minimapHeight: Int? = null,)
 
 class RouteGraphDisplayViewModelProvider {
