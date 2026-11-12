@@ -37,6 +37,13 @@ android {
     }
 
     signingConfigs {
+        // Fixed, non-secret key for personal sideloading, so each new build installs over the previous one
+        create("sideload") {
+            storeFile = file("swisstopo-sideload.jks")
+            storePassword = "sideload"
+            keyAlias = "sideload"
+            keyPassword = "sideload"
+        }
         create("release") {
             val env: MutableMap<String, String> = System.getenv()
             keyAlias = env["KEY_ALIAS"]
@@ -52,6 +59,7 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("sideload")
         }
         release {
             signingConfig = signingConfigs.getByName("release")
