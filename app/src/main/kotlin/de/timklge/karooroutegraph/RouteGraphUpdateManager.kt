@@ -63,7 +63,8 @@ class RouteGraphUpdateManager(
     private val displayViewModelProvider: RouteGraphDisplayViewModelProvider,
     private val context: Context,
     private val offlineNearbyPOIProvider: OfflineNearbyPOIProvider,
-    private val autoAddedPOIsViewModelProvider: AutoAddedPOIsViewModelProvider
+    private val autoAddedPOIsViewModelProvider: AutoAddedPOIsViewModelProvider,
+    private val tileDownloadService: TileDownloadService
 ) {
     companion object {
         const val TAG = "karoo-routegraph"
@@ -274,6 +275,7 @@ class RouteGraphUpdateManager(
                     }
 
                     if (routeChanged) {
+                        tileDownloadService.prefetchRoute(knownRoute)
                         displayViewModelProvider.update {
                             it.copy(minimapZoomLevel = if (knownRoute != null) MinimapZoomLevel.COMPLETE_ROUTE else MinimapZoomLevel.DEFAULT)
                         }

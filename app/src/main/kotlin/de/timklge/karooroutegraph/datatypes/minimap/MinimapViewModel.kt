@@ -22,7 +22,8 @@ import kotlinx.coroutines.flow.update
 import java.time.Instant
 
 data class MinimapViewModel(/* val pastPoints: List<Point>? = null, */
-                            val lastTileDownloadedAt: Instant? = null)
+                            val lastTileDownloadedAt: Instant? = null,
+                            val prefetchStatus: String? = null)
 
 class MinimapViewModelProvider {
     private val observableStateFlow = MutableStateFlow(MinimapViewModel())

@@ -20,6 +20,14 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import com.mapbox.geojson.LineString
+import com.mapbox.turf.TurfConstants
+import com.mapbox.turf.TurfMeasurement
+import de.timklge.karooroutegraph.datatypes.minimap.getRequiredTiles
+import kotlin.math.cos
+import kotlin.math.pow
 import android.util.Log
 import de.timklge.karooroutegraph.datatypes.minimap.MinimapViewModelProvider
 import io.hammerhead.karooext.models.HttpResponseState
@@ -47,6 +55,10 @@ import java.time.Duration
 import java.time.Instant
 
 const val SWISSTOPO_MAX_ZOOM = 18
+private val PREFETCH_ZOOM_ORDER = listOf(14, 15, 13, 16, 12, 11, 10)
+private const val PREFETCH_VIEW_WIDTH_PX = 480
+private const val PREFETCH_VIEW_HEIGHT_PX = 720
+private const val MAX_DISK_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB
 
 class TileDownloadService(
     private val karooSystemServiceProvider: KarooSystemServiceProvider,
@@ -55,7 +67,10 @@ class TileDownloadService(
 ) {
     data class CachedTile(val lastAccessed: Instant, val bitmap: Bitmap)
 
-    private val cacheDir = File(context.cacheDir, "tiles")
+    // filesDir instead of cacheDir: Android may clear cacheDir, but pre-downloaded route tiles must stay
+    private val cacheDir = File(context.filesDir, "swisstopo-tiles")
+    private val appContext = context.applicationContext
+    private var prefetchJob: Job? = null
     private val inMemoryCache = mutableMapOf<Tile, CachedTile>()
     private val mutex = Mutex()
     private val maxCacheSize = 24 // 512 px tiles are ~1 MB each in memory
@@ -69,6 +84,7 @@ class TileDownloadService(
         if (!cacheDir.exists()) {
             cacheDir.mkdirs()
         }
+        CoroutineScope(Dispatchers.IO).launch { pruneDiskCache() }
         startDownloadJob()
     }
 
@@ -110,6 +126,99 @@ class TileDownloadService(
 
     private fun getTileFile(tile: Tile): File {
         return File(cacheDir, "swisstopo2x-${tile.z}-${tile.x}-${tile.y}.jpg")
+    }
+
+    /**
+     * Download every minimap tile along [route] for the zoom steps from 5 km down to 50 m
+     * (Z10..Z16) into persistent storage, but only while the Karoo is on Wi-Fi (Karoo routes
+     * extension HTTP over Wi-Fi when connected, otherwise via Bluetooth to the phone, which is slow).
+     */
+    fun prefetchRoute(route: LineString?) {
+        prefetchJob?.cancel()
+        setPrefetchStatus(null)
+        if (route == null) return
+
+        prefetchJob = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val tiles = computeRouteTiles(route)
+                var done = tiles.count { getTileFile(it).exists() }
+                Log.i(KarooRouteGraphExtension.TAG, "Route prefetch: ${tiles.size} tiles, $done already stored")
+
+                for (tile in tiles) {
+                    if (getTileFile(tile).exists()) continue
+                    while (!isOnWifi()) {
+                        setPrefetchStatus("Offline ${percent(done, tiles.size)}% - needs Wi-Fi")
+                        delay(30_000)
+                    }
+                    setPrefetchStatus("Offline ${percent(done, tiles.size)}%")
+                    try {
+                        val bitmap = fetchTileFromNetwork(tile)
+                        mutex.withLock { saveTileToFile(bitmap, getTileFile(tile)) }
+                        bitmap.recycle()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(KarooRouteGraphExtension.TAG, "Route prefetch: tile $tile failed", e)
+                    }
+                    done++
+                    delay(100) // stay well within swisstopo fair use (max 600 requests/min)
+                }
+                setPrefetchStatus(if (done >= tiles.size) "Offline ready" else "Offline ${percent(done, tiles.size)}%")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(KarooRouteGraphExtension.TAG, "Route prefetch failed", e)
+                setPrefetchStatus(null)
+            }
+        }
+    }
+
+    private fun percent(done: Int, total: Int) = if (total == 0) 100 else (done * 100 / total)
+
+    private fun setPrefetchStatus(status: String?) {
+        minimapViewModelProvider.update { if (it.prefetchStatus == status) it else it.copy(prefetchStatus = status) }
+    }
+
+    /** All tiles the minimap could need along the route, most used zoom steps first. */
+    private fun computeRouteTiles(route: LineString): List<Tile> {
+        val routeLengthM = TurfMeasurement.length(route, TurfConstants.UNIT_METERS)
+        val lat = route.coordinates().firstOrNull()?.latitude() ?: 46.8
+        val result = LinkedHashSet<Tile>()
+        for (zoom in PREFETCH_ZOOM_ORDER) {
+            // Sample the route every quarter tile and add the tiles a screen-sized view around that point needs
+            val tileSizeM = 40_075_016.0 * cos(Math.toRadians(lat)) / 2.0.pow(zoom)
+            val stepM = tileSizeM / 4
+            var d = 0.0
+            while (d <= routeLengthM) {
+                val point = TurfMeasurement.along(route, d, TurfConstants.UNIT_METERS)
+                result.addAll(getRequiredTiles(zoom.toFloat(), PREFETCH_VIEW_WIDTH_PX, PREFETCH_VIEW_HEIGHT_PX, point))
+                d += stepM
+            }
+        }
+        return result.toList()
+    }
+
+    private fun isOnWifi(): Boolean {
+        return try {
+            val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return false
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        } catch (e: Exception) {
+            Log.w(KarooRouteGraphExtension.TAG, "Could not determine network state, assuming Wi-Fi", e)
+            true
+        }
+    }
+
+    /** Keep stored tiles under MAX_DISK_BYTES by deleting the least recently written ones. */
+    private fun pruneDiskCache() {
+        val files = cacheDir.listFiles()?.filter { it.isFile } ?: return
+        var total = files.sumOf { it.length() }
+        if (total <= MAX_DISK_BYTES) return
+        for (file in files.sortedBy { it.lastModified() }) {
+            if (total <= MAX_DISK_BYTES * 3 / 4) break
+            total -= file.length()
+            file.delete()
+        }
     }
 
     suspend fun getTileIfAvailableInstantly(tile: Tile): Bitmap? {

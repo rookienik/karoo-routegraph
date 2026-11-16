@@ -257,7 +257,7 @@ class MinimapDataType(
                 displayViewModel.copy(minimapWidth = width, minimapHeight = height)
             }
 
-            flow.throttle(1_000L).filter { it.dataPageIsVisible }.collect { (viewModel, _, userProfile, displayViewModel, settings, _, locationViewModel, surfaceConditions) ->
+            flow.throttle(1_000L).filter { it.dataPageIsVisible }.collect { (viewModel, minimapViewModel, userProfile, displayViewModel, settings, _, locationViewModel, surfaceConditions) ->
                 Log.d(TAG, "Redrawing minimap view")
 
                 val width = config.viewSize.first
@@ -561,7 +561,7 @@ class MinimapDataType(
                             if (nightMode) Color.WHITE else Color.BLACK
                         )
                     }
-                    this@MinimapDataType.drawCopyright(canvas, width, height, nightMode)
+                    this@MinimapDataType.drawCopyright(canvas, width, height, nightMode, minimapViewModel.prefetchStatus)
                     if (viewModel.locationAndRemainingRouteDistance?.lon != null && viewModel.locationAndRemainingRouteDistance.lat != null) {
                         val currentPositionIndicatorWidth =
                             if (config.gridSize.first > 15 && config.gridSize.second > 15) {
@@ -1104,7 +1104,19 @@ class MinimapDataType(
         canvas.drawText(scaleTextWithSuffix, textX, yPos - 10, textPaint)
     }
 
-    private fun drawCopyright(canvas: Canvas, width: Int, height: Int, nightMode: Boolean) {
+    private fun drawCopyright(canvas: Canvas, width: Int, height: Int, nightMode: Boolean, prefetchStatus: String? = null) {
+        if (prefetchStatus != null) {
+            val statusPaint = Paint().apply {
+                isAntiAlias = true
+                color = if (nightMode) Color.WHITE else Color.BLACK
+                textSize = 20f
+                textAlign = Paint.Align.LEFT
+            }
+            val bgPaint = Paint().apply { color = if (nightMode) Color.argb(160, 0, 0, 0) else Color.argb(170, 255, 255, 255) }
+            val textWidth = statusPaint.measureText(prefetchStatus)
+            canvas.drawRect(0f, 0f, textWidth + 12f, 28f, bgPaint)
+            canvas.drawText(prefetchStatus, 6f, 21f, statusPaint)
+        }
         val paint = Paint().apply {
             isAntiAlias = true
             color = if (nightMode) Color.GRAY else Color.DKGRAY
