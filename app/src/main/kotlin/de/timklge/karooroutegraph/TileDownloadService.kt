@@ -23,6 +23,10 @@ import android.graphics.Canvas
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.mapbox.geojson.LineString
+import com.mapbox.geojson.Point
+import kotlinx.coroutines.flow.filterNotNull
+import kotlin.math.floor
+import kotlin.math.hypot
 import com.mapbox.turf.TurfConstants
 import com.mapbox.turf.TurfMeasurement
 import de.timklge.karooroutegraph.datatypes.minimap.getRequiredTiles
@@ -58,11 +62,16 @@ const val SWISSTOPO_MAX_ZOOM = 18
 private val PREFETCH_ZOOM_ORDER = listOf(14, 15, 13, 16, 12, 11, 10)
 private const val PREFETCH_VIEW_WIDTH_PX = 480
 private const val PREFETCH_VIEW_HEIGHT_PX = 720
-private const val MAX_DISK_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB
+private const val MAX_DISK_BYTES = 3L * 1024 * 1024 * 1024 // 3 GB
+
+/** Area pre-download around the Karoo's location (e.g. home) for riding without a route: zoom -> radius in km */
+private val AREA_PREFETCH_RADIUS_KM = linkedMapOf(14 to 35.0, 13 to 60.0, 15 to 18.0, 12 to 100.0, 16 to 8.0, 11 to 100.0, 10 to 100.0)
+private const val AREA_RECENTER_KM = 5.0
 
 class TileDownloadService(
     private val karooSystemServiceProvider: KarooSystemServiceProvider,
     private val minimapViewModelProvider: MinimapViewModelProvider,
+    private val locationViewModelProvider: LocationViewModelProvider,
     context: Context,
 ) {
     data class CachedTile(val lastAccessed: Instant, val bitmap: Bitmap)
@@ -70,6 +79,7 @@ class TileDownloadService(
     // filesDir instead of cacheDir: Android may clear cacheDir, but pre-downloaded route tiles must stay
     private val cacheDir = File(context.filesDir, "swisstopo-tiles")
     private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("swisstopo_prefetch", Context.MODE_PRIVATE)
     private var prefetchJob: Job? = null
     private val inMemoryCache = mutableMapOf<Tile, CachedTile>()
     private val mutex = Mutex()
@@ -85,6 +95,7 @@ class TileDownloadService(
             cacheDir.mkdirs()
         }
         CoroutineScope(Dispatchers.IO).launch { pruneDiskCache() }
+        startAreaPrefetchLoop()
         startDownloadJob()
     }
 
@@ -139,38 +150,119 @@ class TileDownloadService(
         if (route == null) return
 
         prefetchJob = CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val tiles = computeRouteTiles(route)
-                var done = tiles.count { getTileFile(it).exists() }
-                Log.i(KarooRouteGraphExtension.TAG, "Route prefetch: ${tiles.size} tiles, $done already stored")
+            runPrefetch("Route", computeRouteTiles(route), waitForWifi = true)
+        }
+    }
 
-                for (tile in tiles) {
-                    if (getTileFile(tile).exists()) continue
+    /**
+     * Download [tiles] that are not stored yet. Route downloads wait for Wi-Fi; area downloads stop when
+     * Wi-Fi drops (they are restarted later and skip what is already stored). Returns true when complete.
+     */
+    private suspend fun runPrefetch(label: String, tiles: List<Tile>, waitForWifi: Boolean): Boolean {
+        try {
+            var done = tiles.count { getTileFile(it).exists() }
+            Log.i(KarooRouteGraphExtension.TAG, "$label prefetch: ${tiles.size} tiles, $done already stored")
+
+            for (tile in tiles) {
+                if (getTileFile(tile).exists()) continue
+                if (!isOnWifi()) {
+                    if (!waitForWifi) {
+                        setPrefetchStatus(null)
+                        return false
+                    }
                     while (!isOnWifi()) {
-                        setPrefetchStatus("Offline ${percent(done, tiles.size)}% - needs Wi-Fi")
+                        setPrefetchStatus("$label offline ${percent(done, tiles.size)}% - needs Wi-Fi")
                         delay(30_000)
                     }
-                    setPrefetchStatus("Offline ${percent(done, tiles.size)}%")
-                    try {
-                        val bitmap = fetchTileFromNetwork(tile)
-                        mutex.withLock { saveTileToFile(bitmap, getTileFile(tile)) }
-                        bitmap.recycle()
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.w(KarooRouteGraphExtension.TAG, "Route prefetch: tile $tile failed", e)
-                    }
-                    done++
-                    delay(100) // stay well within swisstopo fair use (max 600 requests/min)
                 }
-                setPrefetchStatus(if (done >= tiles.size) "Offline ready" else "Offline ${percent(done, tiles.size)}%")
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(KarooRouteGraphExtension.TAG, "Route prefetch failed", e)
-                setPrefetchStatus(null)
+                setPrefetchStatus("$label offline ${percent(done, tiles.size)}%")
+                try {
+                    val bitmap = fetchTileFromNetwork(tile)
+                    mutex.withLock { saveTileToFile(bitmap, getTileFile(tile)) }
+                    bitmap.recycle()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(KarooRouteGraphExtension.TAG, "$label prefetch: tile $tile failed", e)
+                }
+                done++
+                delay(100) // stay well within swisstopo fair use (max 600 requests/min)
+            }
+            setPrefetchStatus("$label offline ready")
+            delay(120_000)
+            setPrefetchStatus(null)
+            return true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(KarooRouteGraphExtension.TAG, "$label prefetch failed", e)
+            setPrefetchStatus(null)
+            return false
+        }
+    }
+
+    private fun storedPoint(prefix: String): Point? {
+        if (!prefs.contains("${prefix}_lat")) return null
+        return Point.fromLngLat(prefs.getFloat("${prefix}_lon", 0f).toDouble(), prefs.getFloat("${prefix}_lat", 0f).toDouble())
+    }
+
+    private fun storePoint(prefix: String, point: Point) {
+        prefs.edit().putFloat("${prefix}_lat", point.latitude().toFloat()).putFloat("${prefix}_lon", point.longitude().toFloat()).apply()
+    }
+
+    private fun distanceKm(a: Point, b: Point) = TurfMeasurement.distance(a, b, TurfConstants.UNIT_KILOMETERS)
+
+    /** Remember the last GPS position, so the area download also works indoors at home without a fix. */
+    private fun startAreaPrefetchLoop() {
+        CoroutineScope(Dispatchers.IO).launch {
+            launch {
+                locationViewModelProvider.viewModelFlow.filterNotNull().collect { point ->
+                    val last = storedPoint("last")
+                    if (last == null || distanceKm(last, point) > 0.5) storePoint("last", point)
+                }
+            }
+            delay(30_000)
+            while (true) {
+                try {
+                    maybeStartAreaPrefetch()
+                } catch (e: Exception) {
+                    Log.w(KarooRouteGraphExtension.TAG, "Area prefetch check failed", e)
+                }
+                delay(120_000)
             }
         }
+    }
+
+    private fun maybeStartAreaPrefetch() {
+        if (prefetchJob?.isActive == true) return // route download (or area download) running
+        if (!isOnWifi()) return
+        val center = locationViewModelProvider.viewModelFlow.value ?: storedPoint("last") ?: return
+        val completed = storedPoint("area_done")
+        if (completed != null && distanceKm(center, completed) < AREA_RECENTER_KM) return
+
+        prefetchJob = CoroutineScope(Dispatchers.IO).launch {
+            if (runPrefetch("Area", computeAreaTiles(center), waitForWifi = false)) storePoint("area_done", center)
+        }
+    }
+
+    /** Tiles within AREA_PREFETCH_RADIUS_KM of [center], per zoom, nearest first. */
+    private fun computeAreaTiles(center: Point): List<Tile> {
+        val result = mutableListOf<Tile>()
+        for ((zoom, radiusKm) in AREA_PREFETCH_RADIUS_KM) {
+            val tileSizeKm = 40_075.016 * cos(Math.toRadians(center.latitude())) / 2.0.pow(zoom)
+            val cx = de.timklge.karooroutegraph.datatypes.minimap.lonToTileX(center.longitude(), zoom)
+            val cy = de.timklge.karooroutegraph.datatypes.minimap.latToTileY(center.latitude(), zoom)
+            val r = radiusKm / tileSizeKm
+            val tiles = mutableListOf<Pair<Double, Tile>>()
+            for (x in floor(cx - r).toInt()..floor(cx + r).toInt()) {
+                for (y in floor(cy - r).toInt()..floor(cy + r).toInt()) {
+                    val dist = hypot(x + 0.5 - cx, y + 0.5 - cy)
+                    if (dist <= r + 0.71) tiles.add(dist to Tile(x, y, zoom))
+                }
+            }
+            result.addAll(tiles.sortedBy { it.first }.map { it.second })
+        }
+        return result
     }
 
     private fun percent(done: Int, total: Int) = if (total == 0) 100 else (done * 100 / total)
